@@ -3,11 +3,11 @@ mod audio;
 mod constants;
 mod decoder;
 mod model;
-mod models;
 mod multilingual;
 mod utils;
 
 use anyhow::Result;
+use candle::safetensors::MmapedFile;
 use candle_nn::VarBuilder;
 use clap::Parser;
 
@@ -39,8 +39,16 @@ fn main() -> Result<()> {
     // Process the audio data, converting it into a format suitable for the model.
     let mel = process_audio(&input_path, &device)?;
 
+    // if let Ok(project_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+    //     println!(
+    //         "The project directory is: {} {}",
+    //         project_dir, default_model
+    //     );
+    //     let _ = mel.save_safetensors("safetensors", format!("{project_dir}/modal.safetensors"))?;
+    // }
+
     // Load model weights from the specified file.
-    let weights = unsafe { candle::safetensors::MmapedFile::new(weights_filename)? };
+    let weights = unsafe { MmapedFile::new(weights_filename)? };
     let weights = weights.deserialize()?;
 
     // Build a variable from the deserialized weights.

@@ -62,6 +62,7 @@ impl Decoder {
                 }
             })
             .collect();
+
         let suppress_tokens = Tensor::new(suppress_tokens.as_slice(), device)?;
         let sot_token = utils::token_id(&tokenizer, SOT_TOKEN)?;
         let transcribe_token = utils::token_id(&tokenizer, TRANSCRIBE_TOKEN)?;
@@ -86,7 +87,7 @@ impl Decoder {
         let model = &self.model;
         let audio_features = model.encoder.forward(mel)?;
 
-        // println!("audio features: {:?}", audio_features.dims());
+        println!("audio features: {:?}", audio_features.dims());
 
         let sample_len = model.config.max_target_positions / 2;
         let mut sum_logprob = 0f64;
@@ -160,9 +161,11 @@ impl Decoder {
     pub fn decode_with_fallback(&mut self, segment: &Tensor) -> Result<DecodingResult> {
         for (i, &t) in TEMPERATURES.iter().enumerate() {
             let dr: Result<DecodingResult> = self.decode(segment, t);
+
             if i == TEMPERATURES.len() - 1 {
                 return dr;
             }
+
             // On errors, we try again with a different temperature.
             match dr {
                 Ok(dr) => {

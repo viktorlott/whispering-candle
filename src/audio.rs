@@ -103,25 +103,36 @@ fn dft<T: Float>(inp: &[T]) -> Vec<T> {
 ///
 /// https://github.com/ggerganov/whisper.cpp/blob/4774d2feb01a772a15de81ffc34b34a1f294f020/whisper.cpp#L2414
 ///
-/// # Parameters:
-/// - `ith`: The index of the current processing window or batch. Often used when processing in
+/// # Arguments:
+///
+/// * `ith`: The index of the current processing window or batch. Often used when processing in
 ///   parallel or batches.
-/// - `hann`: A pre-computed Hann window. The Hann window is a type of tapering window used in FFT
+///
+/// * `hann`: A pre-computed Hann window. The Hann window is a type of tapering window used in FFT
 ///   to minimize the discontinuity at the beginning and end of the sampled window.
-/// - `samples`: The raw audio samples to process.
-/// - `filters`: Mel filter banks to convert FFT bins to Mel scale. These are triangular filters
+///
+/// * `samples`: The raw audio samples to process.
+///
+/// * `filters`: Mel filter banks to convert FFT bins to Mel scale. These are triangular filters
 ///   used to simulate the human ear's frequency response.
-/// - `fft_size`: The size of the FFT window, i.e., how many samples are included in each FFT
+///
+/// * `fft_size`: The size of the FFT window, i.e., how many samples are included in each FFT
 ///   computation. This determines the frequency resolution of the resulting spectrogram.
-/// - `fft_step`: The step size between successive FFT windows. This determines how much the window
+///
+/// * `fft_step`: The step size between successive FFT windows. This determines how much the window
 ///   is moved for each FFT computation and thus affects time resolution.
-/// - `speed_up`: A flag that indicates if the function should use any optimizations to speed up the
+///
+/// * `speed_up`: A flag that indicates if the function should use any optimizations to speed up the
 ///   computation.
-/// - `n_len`: The length of the processed audio segment, often used for ensuring buffer sizes or
+///
+/// * `n_len`: The length of the processed audio segment, often used for ensuring buffer sizes or
 ///   memory allocations.
-/// - `n_mel`: The number of Mel bands or Mel filters to use when converting the spectrogram.
+///
+/// * `n_mel`: The number of Mel bands or Mel filters to use when converting the spectrogram.
 ///   Determines the resolution on the Mel scale.
-/// - `n_threads`: The number of threads to use for parallel processing, if applicable.
+///
+/// * `n_threads`: The number of threads to use for parallel processing, if applicable.
+///
 #[allow(clippy::too_many_arguments)]
 fn log_mel_spectrogram_w<T: Float>(
     ith: usize,
