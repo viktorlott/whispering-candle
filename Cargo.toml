@@ -45,6 +45,7 @@ tracing-chrome = "0.7.1"
 tracing-subscriber = "0.3.7"
 wav = "1.0.0"
 zip = { version = "0.6.6", default-features = false }
+penum = "0.1.29"
 
 
 [dev-dependencies]
@@ -60,6 +61,7 @@ tracing = "0.1.37"
 tracing-chrome = "0.7.1"
 tracing-subscriber = "0.3.17"
 wav = "1.0.0"
+
 
 [features]
 default = []

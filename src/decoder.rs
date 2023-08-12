@@ -200,7 +200,7 @@ impl Decoder {
 
         let mut seek = 0;
 
-        let max_segments: usize = content_frames / N_FRAMES + 1;
+        let max_segments: usize = (content_frames / N_FRAMES) + 1;
         let mut segments = Vec::with_capacity(max_segments);
         println!("Max segments: {max_segments}");
 

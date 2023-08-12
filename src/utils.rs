@@ -43,7 +43,7 @@ pub fn setup_tracing(args: &Args) -> Option<tracing_chrome::FlushGuard> {
 
 /// Extracting model information
 pub fn get_model_info(args: &Args) -> (&'static str, &'static str) {
-    let (default_model, default_revision) = args.model.model_and_revision();
+    let (default_model, default_revision) = args.model.into();
     (default_model, default_revision)
 }
 
