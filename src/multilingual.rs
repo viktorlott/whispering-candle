@@ -119,15 +119,12 @@ pub fn detect_language(model: &Whisper, tokenizer: &Tokenizer, mel: &Tensor) -> 
     let tokens = Tensor::new(&[[sot_token]], device)?;
     let language_token_ids = Tensor::new(language_token_ids.as_slice(), device)?;
 
-    // println!("{tokens}");
-    // println!("{audio_features}");
     let logits = model
         .decoder
         .forward(&tokens, &audio_features)?
         .i(0)?
         .i(0)?;
 
-    // println!("{logits}");
     let logits = logits.index_select(&language_token_ids, 0)?;
     let probs = candle_nn::ops::softmax(&logits, D::Minus1)?;
     let probs = probs.to_vec1::<f32>()?;
