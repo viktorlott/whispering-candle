@@ -204,13 +204,13 @@ fn log_mel_spectrogram_w<T: Float>(
 /// The function also involves windowing (with the Hann window) the input signal
 /// and then scaling the output to better fit into a desired dynamic range.
 ///
-/// # Parameters:
-/// - `samples`: The raw audio samples to process.
-/// - `filters`: Mel filter banks to convert FFT bins to Mel scale.
-/// - `fft_size`: The size of the FFT window, affecting frequency resolution.
-/// - `fft_step`: The step size between successive FFT windows, affecting time resolution.
-/// - `n_mel`: The number of Mel bands or Mel filters to use.
-/// - `speed_up`: Flag to indicate if optimizations for speed are to be used.
+/// # Arguments:
+/// * `samples`: The raw audio samples to process.
+/// * `filters`: Mel filter banks to convert FFT bins to Mel scale.
+/// * `fft_size`: The size of the FFT window, affecting frequency resolution.
+/// * `fft_step`: The step size between successive FFT windows, affecting time resolution.
+/// * `n_mel`: The number of Mel bands or Mel filters to use.
+/// * `speed_up`: Flag to indicate if optimizations for speed are to be used.
 fn log_mel_spectrogram_<T: Float + std::fmt::Display>(
     samples: &[T],
     filters: &[T],

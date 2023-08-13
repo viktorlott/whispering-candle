@@ -117,8 +117,11 @@ pub fn detect_language(model: &Whisper, tokenizer: &Tokenizer, mel: &Tensor) -> 
         .collect::<Result<Vec<_>>>()?;
 
     let sot_token = token_id(tokenizer, constants::SOT_TOKEN)?;
+    let (_, _, content_frames) = mel.dims3()?;
+    let segment_size = usize::min(content_frames, constants::N_FRAMES);
+    let mel_segment = mel.narrow(2, 0, segment_size)?;
+    let audio_features = model.encoder.forward(&mel_segment)?;
 
-    let audio_features = model.encoder.forward(mel)?;
     let tokens = Tensor::new(&[[sot_token]], device)?;
     let language_token_ids = Tensor::new(language_token_ids.as_slice(), device)?;
 
@@ -134,7 +137,7 @@ pub fn detect_language(model: &Whisper, tokenizer: &Tokenizer, mel: &Tensor) -> 
     let mut probs = LANGUAGES.iter().zip(probs.iter()).collect::<Vec<_>>();
     probs.sort_by(|(_, p1), (_, p2)| p2.total_cmp(p1));
 
-    for ((_, language), p) in probs.iter().take(5) {
+    for ((_, language), p) in probs.iter().take(3) {
         println!("{language}: {p}")
     }
 

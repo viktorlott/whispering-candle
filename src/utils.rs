@@ -133,6 +133,7 @@ fn download_model_data(
 pub fn process_audio(input_path: &Path, device: &Device) -> Result<Tensor> {
     let mel_bytes = include_bytes!("assets/melfilters.bytes");
     let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
+
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
     let mut input = std::fs::File::open(input_path)?;
@@ -150,6 +151,7 @@ pub fn process_audio(input_path: &Path, device: &Device) -> Result<Tensor> {
 
     let mel = audio::pcm_to_mel(&pcm_data, &mel_filters)?;
     let mel_len = mel.len();
+
     let mel = Tensor::from_vec(
         mel,
         (1, constants::N_MELS, mel_len / constants::N_MELS),

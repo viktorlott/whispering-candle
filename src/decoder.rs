@@ -85,6 +85,7 @@ impl Decoder {
     // Function to decode a given Tensor (mel) using a specified temperature.
     pub fn decode(&mut self, mel: &Tensor, t: f64) -> Result<DecodingResult> {
         let model = &self.model;
+        println!("audio tensor: {:?}", mel.dims());
         let audio_features = model.encoder.forward(mel)?;
 
         println!("audio features: {:?}", audio_features.dims());
@@ -204,7 +205,7 @@ impl Decoder {
         let mut seek = 0;
 
         let max_segments: usize = (content_frames / N_FRAMES) + 1;
-        let mut segments = Vec::with_capacity(max_segments);
+        let mut segments = vec![];
         println!("Max segments: {max_segments}");
 
         while seek < content_frames {
@@ -213,6 +214,7 @@ impl Decoder {
             let segment_size = usize::min(content_frames - seek, N_FRAMES);
             println!("Segment size: {segment_size}");
             let mel_segment = mel.narrow(2, seek, segment_size)?;
+            println!("Mel segment: {mel_segment:?}");
             let segment_duration = (segment_size * HOP_LENGTH) as f64 / SAMPLE_RATE as f64;
             let dr = self.decode_with_fallback(&mel_segment)?;
             seek += segment_size;
