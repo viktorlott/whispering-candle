@@ -38,12 +38,11 @@ fn main() -> Result<()> {
 
     // Process the audio data, converting it into a format suitable for the model.
     let mel = process_audio(&input_path, &device)?;
-
     // Load model weights from the specified file.
     let weights = unsafe { MmapedFile::new(weights_filename)? };
-
     // Build a variable from the deserialized weights.
     let vb = VarBuilder::from_safetensors(vec![weights.deserialize()?], constants::DTYPE, &device);
+
     // Set up the model and execute it on the processed audio data.
     setup_and_run_model(
         vb,
@@ -56,11 +55,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-// if let Ok(project_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-//     println!(
-//         "The project directory is: {} {}",
-//         project_dir, default_model
-//     );
-//     let _ = mel.save_safetensors("safetensors", format!("{project_dir}/modal.safetensors"))?;
-// }

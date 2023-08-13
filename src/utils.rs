@@ -130,6 +130,29 @@ fn download_model_data(
     ))
 }
 
+// Overview:
+// * `PCM` - Pulse Code Modulation is often the starting point in digital audio processing. When
+//   audio is recorded using a microphone and stored digitally, the analog waveform is typically
+//   converted to digital using PCM. This method involves sampling the continuous audio waveform at
+//   regular intervals and then quantizing each sample's amplitude to represent it in binary format.
+//   The outcome is a sequence of digital values representing the audio signal.
+//
+// * `Feature Extraction - Mel` - For many audio processing tasks, especially in speech recognition,
+//   it's beneficial to transform the raw PCM audio data into a different representation that
+//   emphasizes certain features of the audio, discarding less crucial information.
+//
+// Steps:
+// 1. `From PCM to Spectrogram` - Before extracting MFCCs, the PCM audio undergoes a transformation
+//    into a spectrogram using the Short-Time Fourier Transform (STFT). This reveals how the power of
+//    different frequencies in the audio signal varies over time.
+//
+// 2. `Spectrogram to Mel Spectrogram` - The frequency scale of the spectrogram is then adapted to
+//    the Mel scale. This perceptual scale mirrors the human ear's response to varying frequencies,
+//    resulting in a "Mel spectrogram."
+//
+// 3. `Mel Spectrogram to MFCCs` - The Mel spectrogram is further transformed to extract MFCCs using
+//    the Discrete Cosine Transform (DCT). MFCCs capture the spectral characteristics of the audio,
+//    reducing sensitivity to variations that may not be perceptually significant.
 pub fn process_audio(input_path: &Path, device: &Device) -> Result<Tensor> {
     let mel_bytes = include_bytes!("assets/melfilters.bytes");
     let mut mel_filters = vec![0f32; mel_bytes.len() / 4];

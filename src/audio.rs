@@ -250,6 +250,7 @@ fn log_mel_spectrogram_<T: Float + std::fmt::Display>(
     let mut mel = log_mel_spectrogram_w(
         0, &hann, &samples, filters, fft_size, fft_step, speed_up, n_len, n_mel, 1,
     );
+
     let mmax = mel
         .iter()
         .max_by(|&u, &v| u.partial_cmp(v).unwrap_or(std::cmp::Ordering::Greater))

@@ -110,7 +110,7 @@ const LANGUAGES: [(&str, &str); 99] = [
 pub fn detect_language(model: &Whisper, tokenizer: &Tokenizer, mel: &Tensor) -> Result<u32> {
     let device = mel.device();
 
-    // TODO: Change this to instead use &str instead of heap strings
+    // TODO: Change this to use &str instead of heap strings.
     let language_token_ids = LANGUAGES
         .iter()
         .map(|(t, _)| token_id(tokenizer, &format!("<|{t}|>")))
