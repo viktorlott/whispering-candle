@@ -2,6 +2,166 @@
 // https://github.com/ggerganov/whisper.cpp
 use super::constants;
 
+// Custom FFT using NEON intrinsics
+mod neon {
+    use core::arch::aarch64::*;
+
+    const MAX_TERMS: usize = 10;
+
+    unsafe fn vcosq_f32(values: float32x4_t) -> float32x4_t {
+        let mut result = vdupq_n_f32(1.0);
+        let mut x_power = vdupq_n_f32(1.0); // Start with x^0
+        let mut factorial = 1.0;
+        let mut sign = -1.0;
+
+        for i in 1..=MAX_TERMS {
+            x_power = vmulq_f32(x_power, values);
+            factorial *= (2 * i) as f32 * (2 * i - 1) as f32;
+            let term = vdivq_f32(vmulq_f32(x_power, x_power), vdupq_n_f32(factorial));
+            result = vaddq_f32(result, vmulq_f32(vdupq_n_f32(sign), term));
+            sign = -sign;
+        }
+
+        result
+    }
+
+    unsafe fn vsinq_f32(values: float32x4_t) -> float32x4_t {
+        let mut result = values.clone();
+        let mut x_power = values.clone(); // Start with x
+        let mut factorial = 1.0;
+        let mut sign = -1.0;
+
+        for i in 1..=MAX_TERMS {
+            x_power = vmulq_f32(x_power, vmulq_f32(values, values));
+            factorial *= (2 * i + 1) as f32 * (2 * i) as f32;
+            let term = vdivq_f32(x_power, vdupq_n_f32(factorial));
+            result = vaddq_f32(result, vmulq_f32(vdupq_n_f32(sign), term));
+            sign = -sign;
+        }
+
+        result
+    }
+
+    unsafe fn norm(values: float32x4_t) -> [f32; 4] {
+        let mut output = [0.0f32; 4];
+        vst1q_f32(output.as_mut_ptr(), values);
+        output
+    }
+
+    pub unsafe fn fft(inp: &[f32]) -> Vec<f32> {
+        let n = inp.len();
+        let zero = 0.0f32;
+
+        // Base cases for recursion.
+        if n == 1 {
+            return vec![inp[0], zero];
+        }
+        if n % 2 == 1 {
+            return dft(inp);
+        }
+
+        let mut out = vec![zero; n * 2];
+        let mut even = Vec::with_capacity(n / 2);
+        let mut odd = Vec::with_capacity(n / 2);
+
+        // Split the input into even and odd components.
+        for (i, &inp_val) in inp.iter().enumerate() {
+            if i % 2 == 0 {
+                even.push(inp_val)
+            } else {
+                odd.push(inp_val);
+            }
+        }
+
+        // Recursive FFT calls for even and odd parts.
+        let even_fft = fft(&even);
+        let odd_fft = fft(&odd);
+
+        // Combine the FFT results from the even and odd parts.
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let n_f32 = n as f32;
+
+        let mut k = 0;
+        while k < n / 2 {
+            let end = std::cmp::min(k + 4, n / 2);
+            let len = end - k;
+
+            // Prepare an array for k_values and fill it
+            let mut k_array = [0.0f32; 4];
+            for i in 0..len {
+                k_array[i] = (k + i) as f32;
+            }
+
+            // Load k_values into a NEON vector
+            let k_values = vld1q_f32(k_array.as_ptr());
+
+            // Compute theta_values using vectorized operations
+            let two_pi_vec = vdupq_n_f32(two_pi);
+            let n_f32_vec = vdupq_n_f32(n_f32);
+            let theta = vdivq_f32(vmulq_f32(two_pi_vec, k_values), n_f32_vec);
+
+            let re = norm(vcosq_f32(theta));
+            let im = norm(vnegq_f32(vsinq_f32(theta)));
+
+            for i in 0..len {
+                let re_odd = odd_fft[2 * (k + i)];
+                let im_odd = odd_fft[2 * (k + i) + 1];
+
+                out[2 * (k + i)] = even_fft[2 * (k + i)] + re[i] * re_odd - im[i] * im_odd;
+                out[2 * (k + i) + 1] = even_fft[2 * (k + i) + 1] + re[i] * im_odd + im[i] * re_odd;
+
+                out[2 * (k + i + n / 2)] = even_fft[2 * (k + i)] - re[i] * re_odd + im[i] * im_odd;
+                out[2 * (k + i + n / 2) + 1] =
+                    even_fft[2 * (k + i) + 1] - re[i] * im_odd - im[i] * re_odd;
+            }
+
+            k += len;
+        }
+        out
+    }
+
+    pub unsafe fn dft(inp: &[f32]) -> Vec<f32> {
+        let n = inp.len();
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut out = Vec::with_capacity(2 * n);
+        let n_inv = vdupq_n_f32(1.0 / n as f32);
+
+        for k in 0..n {
+            let k_f32 = k as f32;
+            let mut re = [0.0f32; 4];
+            let mut im = [0.0f32; 4];
+
+            for j in (0..n).step_by(4) {
+                let j_vec = vaddq_f32(
+                    vdupq_n_f32(j as f32),
+                    vld1q_f32([0.0, 1.0, 2.0, 3.0].as_ptr()),
+                );
+
+                let two_pi_k = vdupq_n_f32(two_pi * k_f32);
+                let theta = vmulq_f32(vmulq_f32(two_pi_k, j_vec), n_inv);
+
+                let inp_values = vld1q_f32(inp[j..j + 4].as_ptr());
+                let re_part = vmulq_f32(inp_values, vcosq_f32(theta));
+                let im_part = vmulq_f32(inp_values, vsinq_f32(theta));
+
+                let mut re_temp = [0.0f32; 4];
+                let mut im_temp = [0.0f32; 4];
+                vst1q_f32(re_temp.as_mut_ptr(), re_part);
+                vst1q_f32(im_temp.as_mut_ptr(), im_part);
+
+                for i in 0..4 {
+                    re[i] += re_temp[i];
+                    im[i] -= im_temp[i];
+                }
+            }
+
+            out.push(re.iter().sum());
+            out.push(im.iter().sum());
+        }
+        out
+    }
+}
+
 // Define a trait for floating point numbers that encompasses various traits from the `num_traits` crate.
 pub trait Float: num_traits::Float + num_traits::FloatConst + num_traits::NumAssign {}
 
@@ -271,13 +431,30 @@ pub fn pcm_to_mel<T: Float + std::fmt::Display>(
     samples: &[T],
     filters: &[T],
 ) -> anyhow::Result<Vec<T>> {
-    let mel = log_mel_spectrogram_(
+    Ok(log_mel_spectrogram_(
         samples,
         filters,
         constants::N_FFT,
         constants::HOP_LENGTH,
         constants::N_MELS,
         false,
-    );
-    Ok(mel)
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        unsafe {
+            let c: Vec<f32> = fft(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]);
+            // NEON
+            // #1 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
+            // #3 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
+            // #5 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
+            // #2 [9.0, 0.0, 0.7071069,  0.7071067,  4.371139e-8,  1.0,        -0.7071067, 0.7071068, -1.0, 0.0, -0.7071069,  -0.7071067,  -4.371139e-8,  -1.0,        0.7071067, -0.7071068]
+            println!("{c:?}");
+        }
+    }
 }
