@@ -215,3 +215,26 @@ pub fn setup_and_run_model(
 
     Ok(())
 }
+
+pub const fn factorial_sequence<const N: usize>(positive: bool) -> [f32; N] {
+    let mut list: [f32; N] = [0.0; N];
+    let mut index = 1;
+    let mut factorial: usize = 1;
+
+    loop {
+        if index > N {
+            break;
+        }
+
+        factorial *= (if positive {
+            2 * index + 1
+        } else {
+            2 * index - 1
+        }) * (2 * index);
+        list[index - 1] = factorial as f32;
+
+        index += 1;
+    }
+
+    list
+}

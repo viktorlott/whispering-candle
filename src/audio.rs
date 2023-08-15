@@ -2,22 +2,36 @@
 // https://github.com/ggerganov/whisper.cpp
 use super::constants;
 
+const TWO_PI: f32 = 2.0 * std::f32::consts::PI;
+const MAX_TERMS: usize = 7;
+const COSINE_FACTORIAL_SERIES: [f32; MAX_TERMS] = super::utils::factorial_sequence(false);
+const SINE_FACTORIAL_SERIES: [f32; MAX_TERMS] = super::utils::factorial_sequence(true);
+
 // Custom FFT using NEON intrinsics
 mod neon {
+    use super::*;
     use core::arch::aarch64::*;
 
-    const MAX_TERMS: usize = 10;
-
+    // https://en.wikipedia.org/wiki/Taylor_series
+    #[inline(always)]
     unsafe fn vcosq_f32(values: float32x4_t) -> float32x4_t {
         let mut result = vdupq_n_f32(1.0);
         let mut x_power = vdupq_n_f32(1.0); // Start with x^0
-        let mut factorial = 1.0;
         let mut sign = -1.0;
 
+        // Taylor series for cosine:
+        //      1 *  (2 * 1 - 1 = 1)    *    (2 * 1 = 2) = 2      | 2!
+        //      2 *  (2 * 2 - 1 = 3)    *    (2 * 2 = 4) = 24     | 4!
+        //     24 *  (2 * 3 - 1 = 5)    *    (2 * 3 = 6) = 720    | 6!
         for i in 1..=MAX_TERMS {
+            // x^2, x^4, x^6, ...
             x_power = vmulq_f32(x_power, values);
-            factorial *= (2 * i) as f32 * (2 * i - 1) as f32;
-            let term = vdivq_f32(vmulq_f32(x_power, x_power), vdupq_n_f32(factorial));
+            // 2!, 4!, 6!, ...
+            let term = vdivq_f32(
+                vmulq_f32(x_power, x_power),
+                vdupq_n_f32(COSINE_FACTORIAL_SERIES[i - 1]),
+            );
+            // x^2/2!, x^4/4!, ...
             result = vaddq_f32(result, vmulq_f32(vdupq_n_f32(sign), term));
             sign = -sign;
         }
@@ -25,16 +39,23 @@ mod neon {
         result
     }
 
+    // https://en.wikipedia.org/wiki/Taylor_series
+    #[inline(always)]
     unsafe fn vsinq_f32(values: float32x4_t) -> float32x4_t {
-        let mut result = values.clone();
-        let mut x_power = values.clone(); // Start with x
-        let mut factorial = 1.0;
+        let mut result = values;
+        let mut x_power = values;
         let mut sign = -1.0;
 
+        // Taylor series for cosine:
+        //      1 *  (2 * 1 + 1 = 3)    *    (2 * 1 = 2) = 6      | 3!
+        //      6 *  (2 * 2 + 1 = 5)    *    (2 * 2 = 4) = 120    | 5!
+        //    120 *  (2 * 3 + 1 = 7)    *    (2 * 3 = 6) = 5040   | 7!
         for i in 1..=MAX_TERMS {
+            // x^3, x^5, x^7, ...
             x_power = vmulq_f32(x_power, vmulq_f32(values, values));
-            factorial *= (2 * i + 1) as f32 * (2 * i) as f32;
-            let term = vdivq_f32(x_power, vdupq_n_f32(factorial));
+            // 3!, 5!, 7!, ...
+            let term = vdivq_f32(x_power, vdupq_n_f32(SINE_FACTORIAL_SERIES[i - 1]));
+            // x^3/3!, x^5/5!, ...
             result = vaddq_f32(result, vmulq_f32(vdupq_n_f32(sign), term));
             sign = -sign;
         }
@@ -42,6 +63,7 @@ mod neon {
         result
     }
 
+    #[inline(always)]
     unsafe fn norm(values: float32x4_t) -> [f32; 4] {
         let mut output = [0.0f32; 4];
         vst1q_f32(output.as_mut_ptr(), values);
@@ -60,9 +82,11 @@ mod neon {
             return dft(inp);
         }
 
+        let half_n = n / 2;
+
         let mut out = vec![zero; n * 2];
-        let mut even = Vec::with_capacity(n / 2);
-        let mut odd = Vec::with_capacity(n / 2);
+        let mut even = Vec::with_capacity(half_n);
+        let mut odd = Vec::with_capacity(half_n);
 
         // Split the input into even and odd components.
         for (i, &inp_val) in inp.iter().enumerate() {
@@ -78,41 +102,48 @@ mod neon {
         let odd_fft = fft(&odd);
 
         // Combine the FFT results from the even and odd parts.
-        let two_pi = 2.0 * std::f32::consts::PI;
-        let n_f32 = n as f32;
+        let two_pi_vec = vdupq_n_f32(TWO_PI);
+        let n_f32_vec = vdupq_n_f32(n as f32);
 
         let mut k = 0;
-        while k < n / 2 {
-            let end = std::cmp::min(k + 4, n / 2);
+        while k < half_n {
+            // end should be in between the [4, half_n] interval
+            let end = std::cmp::min(k + 4, half_n);
             let len = end - k;
 
             // Prepare an array for k_values and fill it
-            let mut k_array = [0.0f32; 4];
-            for i in 0..len {
-                k_array[i] = (k + i) as f32;
-            }
-
-            // Load k_values into a NEON vector
-            let k_values = vld1q_f32(k_array.as_ptr());
+            let k_base = vdupq_n_f32(k as f32);
+            let increment = vld1q_f32([0.0, 1.0, 2.0, 3.0].as_ptr());
+            let k_values = vaddq_f32(k_base, increment);
 
             // Compute theta_values using vectorized operations
-            let two_pi_vec = vdupq_n_f32(two_pi);
-            let n_f32_vec = vdupq_n_f32(n_f32);
             let theta = vdivq_f32(vmulq_f32(two_pi_vec, k_values), n_f32_vec);
 
             let re = norm(vcosq_f32(theta));
             let im = norm(vnegq_f32(vsinq_f32(theta)));
 
             for i in 0..len {
-                let re_odd = odd_fft[2 * (k + i)];
-                let im_odd = odd_fft[2 * (k + i) + 1];
+                let offset = k + i;
+                let left_current = 2 * offset;
+                let left_next = left_current + 1;
 
-                out[2 * (k + i)] = even_fft[2 * (k + i)] + re[i] * re_odd - im[i] * im_odd;
-                out[2 * (k + i) + 1] = even_fft[2 * (k + i) + 1] + re[i] * im_odd + im[i] * re_odd;
+                let re_odd = odd_fft[left_current];
+                let im_odd = odd_fft[left_next];
 
-                out[2 * (k + i + n / 2)] = even_fft[2 * (k + i)] - re[i] * re_odd + im[i] * im_odd;
-                out[2 * (k + i + n / 2) + 1] =
-                    even_fft[2 * (k + i) + 1] - re[i] * im_odd - im[i] * re_odd;
+                let im_time_im_odd = im[i] * im_odd;
+                let im_time_re_odd = im[i] * re_odd;
+
+                let re_time_re_odd = re[i] * re_odd;
+                let re_time_im_odd = re[i] * im_odd;
+
+                out[left_current] = even_fft[left_current] + re_time_re_odd - im_time_im_odd;
+                out[left_next] = even_fft[left_next] + re_time_im_odd + im_time_re_odd;
+
+                let right_current = 2 * (offset + half_n);
+                let right_next = right_current + 1;
+
+                out[right_current] = even_fft[left_current] - re_time_re_odd + im_time_im_odd;
+                out[right_next] = even_fft[left_next] - re_time_im_odd - im_time_re_odd;
             }
 
             k += len;
@@ -122,14 +153,13 @@ mod neon {
 
     pub unsafe fn dft(inp: &[f32]) -> Vec<f32> {
         let n = inp.len();
-        let two_pi = 2.0 * std::f32::consts::PI;
         let mut out = Vec::with_capacity(2 * n);
         let n_inv = vdupq_n_f32(1.0 / n as f32);
 
         for k in 0..n {
-            let k_f32 = k as f32;
-            let mut re = [0.0f32; 4];
-            let mut im = [0.0f32; 4];
+            let two_pi_k = vdupq_n_f32(k as f32 * TWO_PI);
+            let mut re_vec = vdupq_n_f32(0.0);
+            let mut im_vec = vdupq_n_f32(0.0);
 
             for j in (0..n).step_by(4) {
                 let j_vec = vaddq_f32(
@@ -137,26 +167,19 @@ mod neon {
                     vld1q_f32([0.0, 1.0, 2.0, 3.0].as_ptr()),
                 );
 
-                let two_pi_k = vdupq_n_f32(two_pi * k_f32);
                 let theta = vmulq_f32(vmulq_f32(two_pi_k, j_vec), n_inv);
-
                 let inp_values = vld1q_f32(inp[j..j + 4].as_ptr());
                 let re_part = vmulq_f32(inp_values, vcosq_f32(theta));
                 let im_part = vmulq_f32(inp_values, vsinq_f32(theta));
 
-                let mut re_temp = [0.0f32; 4];
-                let mut im_temp = [0.0f32; 4];
-                vst1q_f32(re_temp.as_mut_ptr(), re_part);
-                vst1q_f32(im_temp.as_mut_ptr(), im_part);
-
-                for i in 0..4 {
-                    re[i] += re_temp[i];
-                    im[i] -= im_temp[i];
-                }
+                // Directly accumulate into re_vec and im_vec
+                re_vec = vaddq_f32(re_vec, re_part);
+                im_vec = vsubq_f32(im_vec, im_part);
             }
 
-            out.push(re.iter().sum());
-            out.push(im.iter().sum());
+            // Summing using NEON intrinsics
+            out.push(vaddvq_f32(re_vec));
+            out.push(vaddvq_f32(im_vec));
         }
         out
     }
@@ -447,14 +470,19 @@ mod tests {
 
     #[test]
     fn it_works() {
+        println!("{:?}", SINE_FACTORIAL_SERIES);
+        println!("{:?}", COSINE_FACTORIAL_SERIES);
         unsafe {
-            let c: Vec<f32> = fft(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]);
+            let mut y: Vec<f32> = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0].to_vec();
+
+            let z = neon::fft(&mut y);
             // NEON
             // #1 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
             // #3 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
             // #5 [9.0, 0.0, 0.70710677, 0.70710665, 6.4281416e-8, 0.99999994, -0.7071066, 0.7071068, -1.0, 0.0, -0.70710677, -0.70710665, -6.4281416e-8, -0.99999994, 0.7071066, -0.7071068]
+            //    [9.0, 0.0, 0.70710707, 0.70710635, 5.290476e-7,  0.9999999,  -0.7070955, 0.70716643, -1.0, 0.0, -0.70710707, -0.70710635, -5.290476e-7, -0.9999999, 0.7070955, -0.70716643]
             // #2 [9.0, 0.0, 0.7071069,  0.7071067,  4.371139e-8,  1.0,        -0.7071067, 0.7071068, -1.0, 0.0, -0.7071069,  -0.7071067,  -4.371139e-8,  -1.0,        0.7071067, -0.7071068]
-            println!("{c:?}");
+            println!("{z:?}");
         }
     }
 }
